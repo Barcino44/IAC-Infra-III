@@ -382,7 +382,7 @@ Resources:
       LaunchTemplateName: !Sub ${EnvironmentName}-WebServerLaunchTemplate
       VersionDescription: Initial version
       LaunchTemplateData:
-        ImageId: ami-003adf48aeccd847e
+        ImageId: ami-003adf48aeccd847e #Deep Learning Base Neuron AMI (Amazon Linux 2) 20230703
         InstanceType: !Ref EC2InstanceType
         SecurityGroupIds:
           - !Ref WebServerSecurityGroup
@@ -458,7 +458,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: ami-003542581452a9bf8
+      ImageId: ami-003542581452a9bf8 #amzn2-ami-minimal-selinux-enforcing-hvm-2.0.20240109.0-x86_64-gp2
       SubnetId: !Ref PublicSubnet1
       SecurityGroupIds:
         - !Ref BastionSecurityGroup
