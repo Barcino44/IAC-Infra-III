@@ -1,4 +1,8 @@
 #!/bin/bash -xe
+echo "DB Endpoint: $DB_ENDPOINT"
+echo "Environment: $ENV_NAME"
+echo "Timestamp: $(date)"
+
 yum update -y
 
 sudo yum update -y
