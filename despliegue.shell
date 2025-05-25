@@ -1,7 +1,5 @@
 #!/bin/bash -xe
-echo "DB Endpoint: $DB_ENDPOINT"
-echo "Environment: $ENV_NAME"
-echo "Timestamp: $(date)"
+DB_ENDPOINT=$1
 
 yum update -y
 
@@ -47,7 +45,7 @@ cat > application.properties << EOF
 server.port=8080
 server.servlet.context-path=/api
 
-spring.datasource.url=jdbc:mysql://${RDSDatabase.Endpoint.Address}:3306/aplicaciondb
+spring.datasource.url=jdbc:mysql://${DB_ENDPOINT}:3306/aplicaciondb
 spring.datasource.username=admin
 spring.datasource.password=password
 spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
