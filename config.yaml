@@ -40,7 +40,7 @@ Parameters:
   DBInstanceType:
     Description: Tipo de instancia RDS
     Type: String
-    Default: db.t3.medium
+    Default: db.t3.micro
 
   EC2InstanceType:
     Description: Tipo de instancia EC2
@@ -394,12 +394,12 @@ Resources:
         UserData:
           Fn::Base64: !Sub | 
             #!/bin/bash -xe
-            yum update -y
-
+            exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+            set -x
             #Instalación de nginx
-            sudo yum update -y
-            sudo amazon-linux-extras enable nginx1
-            sudo yum install -y nginx
+            yum update -y
+            amazon-linux-extras enable nginx1
+            amazon-linux-extras install -y nginx1
 
             #Instalación de java 21
             rpm --import https://yum.corretto.aws/corretto.key
@@ -583,13 +583,15 @@ Resources:
             const API_CONFIG = {
               baseURL: '/api',
               endpoints: {
-                  login: '/client/login',
-                  register: '/client/register',
-                  products: '/client/getProducts'
+                login: '/client/login',
+                register: '/client/register',
+                products: '/client/getProducts',
+                addToCart: '/shoppingCart/addItem/client/{{clientId}}/product/{{productId}}/quantity/{{quantity}}',
+                itemsToCart: '/shoppingCart/getItems/clientId/{{clientId}}',
+                deleteItemFromCart: '/shoppingCart/deleteItem/item/{{itemId}}/client/{{clientId}}'
               }
             };
             EOF
-
             # Ajustar permisos para nginx
             chown -R nginx:nginx /var/www/frontend
             chmod -R 755 /var/www/frontend
@@ -597,13 +599,11 @@ Resources:
             # ==================== INICIAR SERVICIOS ====================
             echo "Iniciando servicios..."
 
-            nginx -t
-
             systemctl enable nginx
             systemctl start nginx
-
             systemctl status springboot-app
             systemctl status nginx
+            
 
 
   WebServerAutoScalingGroup:
@@ -681,7 +681,6 @@ Resources:
       UserData: !Base64
         Fn::Sub: |
           #!/bin/bash -xe
-          echo "Hola desde UserData" > /home/ec2-user/hola.txt
           yum update -y
 
   # CloudWatch monitoring
@@ -692,8 +691,8 @@ Resources:
       MetricName: CPUUtilization
       Namespace: AWS/EC2
       Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
+      Period: 60
+      EvaluationPeriods: 1
       Threshold: 70
       AlarmActions:
         - !Ref NotificationTopic
@@ -708,6 +707,13 @@ Resources:
     Properties:
       DisplayName: !Sub ${EnvironmentName}-AlertNotifications
       TopicName: !Sub ${EnvironmentName}-AlertNotifications
+
+  NotificationTopicSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: juanjobargracia@gmail.com
+      TopicArn: !Ref NotificationTopic
 
   # CloudTrail para registro de actividad
   CloudTrailBucket:
