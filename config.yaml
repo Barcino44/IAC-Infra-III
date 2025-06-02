@@ -7,11 +7,13 @@ Parameters:
     Type: String
     Default: Produccion
 
+  #Configuración VPC con su rango de direcciones IP
   VpcCIDR:
     Description: CIDR para la VPC
     Type: String
     Default: 10.0.0.0/16
 
+  #Configuración de variables
   PublicSubnet1CIDR:
     Description: CIDR para la subred pública 1
     Type: String
@@ -36,12 +38,14 @@ Parameters:
     Description: CIDR para la subred pública 2
     Type: String
     Default: 10.0.5.0/24 
-
+  
+  #Instancia base de datos
   DBInstanceType:
     Description: Tipo de instancia RDS
     Type: String
     Default: db.t3.micro
 
+  #Instancias del Autoscaling group
   EC2InstanceType:
     Description: Tipo de instancia EC2
     Type: String
@@ -81,7 +85,8 @@ Parameters:
     Type: String
     Default: password
     NoEcho: true
-  #KeyPair
+
+  #KeyPair para el acceso al bsation host e instancias del autoscaling group
   KeyPairName:
     Description: Nombre de la key pair existente para acceder al Bastion Host
     Type: String
@@ -99,18 +104,22 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-VPC
 
+  #Internet Gateway para el acceso de instancias publicas a internet
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName}-IGW
-
+          
+  #Asociación del IGW con la VPC
   InternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
+
+  #Definición de cada subnet con su información ya prestablecida
 
   PublicSubnet1:
     Type: AWS::EC2::Subnet
@@ -200,6 +209,7 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet1
 
+  #Acceso a internet por parte de las subnets privadas
   NatGateway:
     Type: AWS::EC2::NatGateway
     Properties:
@@ -242,7 +252,8 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
       SubnetId: !Ref PrivateSubnet2
 
-  # Grupos de seguridad
+  # Grupos de seguridad del Bastion
+  # Permito ssh desde cualquier ip
   BastionSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -257,6 +268,7 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-BastionSG
 
+  #Politicas de acceso para LAS instancias del webserver
   WebServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -280,6 +292,7 @@ Resources:
           ToPort: 22
           SourceSecurityGroupId: !Ref BastionSecurityGroup  # Solo permite SSH desde el bastion
 
+  #Politicas de acceso para el ALB
   ApplicationLoadBalancerSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -295,6 +308,7 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0
 
+  #Politicas de acceso para la base de datos
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -310,35 +324,8 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref WebServerSecurityGroup
 
-  # Bucket S3 para contenido estático
-  S3StaticBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      AccessControl: Private
-      BucketName: !Sub my-bucket-${AWS::AccountId}-${AWS::Region}
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-
-  S3StaticBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref S3StaticBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub ${S3StaticBucket.Arn}/*
-            Condition:
-              StringEquals:
-                aws:SourceVpc: !Ref VPC
-
-  # Application Load Balancer
+  # Application Load Balancer, permito http2 para (nignx)
+  # Necesito de 2 subnets en zonas de disponibilidad diferentes (obligatorio)
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
@@ -354,7 +341,7 @@ Resources:
           Value: 60
         - Key: routing.http2.enabled
           Value: true
-
+  #Listener del ALB. Escucha puerto 80, donde corre la app web (nginx)
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
@@ -364,7 +351,9 @@ Resources:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
-
+  #Target group, del ALB
+  #Las instancias se encuentran en la vpc ya definida
+  #Se realiza el chequeo de la app en /Login/login.html -> Pagina del login de la app
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -380,6 +369,7 @@ Resources:
       VpcId: !Ref VPC
 
 # Auto Scaling Group
+# Todas las instancias creadas sigan esta plantilla que contiene el front y el back de la app web.
   WebServerLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
@@ -603,9 +593,8 @@ Resources:
             systemctl start nginx
             systemctl status springboot-app
             systemctl status nginx
-            
 
-
+#Creación del autoscaling group usando la plantilla previamente definida
   WebServerAutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
@@ -625,7 +614,7 @@ Resources:
           Value: !Sub ${EnvironmentName}-WebServer
           PropagateAtLaunch: true
 
-  # Políticas de escalado
+  # Políticas de escalado del Autoscaling group
   WebServerScaleUpPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
@@ -634,9 +623,10 @@ Resources:
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ASGAverageCPUUtilization
-        TargetValue: 70
+        TargetValue: 50 #Escalare si el uso promedio de CPI es mayor a 50%.
 
   # Base de datos RDS
+  # Se crea la base de datos y asocia a dos 2 subredes en A-Z distintas (obligatorio)
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -645,6 +635,7 @@ Resources:
         - !Ref PrivateSubnet2
         - !Ref PrivateSubnet3
 
+  #Creación de la base de datos con diferentes características (Ya definidas)
   RDSDatabase:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -666,6 +657,9 @@ Resources:
         - Key: Name
           Value: !Sub ${EnvironmentName}-Database
   #Bastion Host
+  #Resulta clave para conectarse a las instancias mediante ssh,
+  #A traves de un tunnel, se puede acceder a ellas y estresarlas para probar las alarmas
+  #Y el autoscaling group
   BastionHost:
     Type: AWS::EC2::Instance
     Properties:
@@ -684,30 +678,59 @@ Resources:
           yum update -y
 
   # CloudWatch monitoring
+  # Envio una alarma en caso de que el uso promedio de cpu de las instancias
+  # del autoscaling group es mayor a 50% 
   CPUAlarmHigh:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: Alarm cuando el CPU excede 70%
+      AlarmDescription: Alarm cuando el CPU excede 50%
       MetricName: CPUUtilization
       Namespace: AWS/EC2
       Statistic: Average
       Period: 60
       EvaluationPeriods: 1
-      Threshold: 70
+      Threshold: 50
       AlarmActions:
         - !Ref NotificationTopic
       Dimensions:
         - Name: AutoScalingGroupName
           Value: !Ref WebServerAutoScalingGroup
       ComparisonOperator: GreaterThanThreshold
+      
+  # Instancias healthy 
+  #Envio alarmas si: Existe una instancia unhealthy, envio correo 
+  #Si la instancia pasa de unhealthy a healthy, envio un correo diciendo esto
+  TargetGroupUnhealthyHosts:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: !Sub "ALARMA CRÍTICA: Instancias NO SALUDABLES en ${EnvironmentName}"
+      AlarmName: !Sub ${EnvironmentName}-UnhealthyInstances
+      MetricName: UnHealthyHostCount
+      Namespace: AWS/ApplicationELB
+      Statistic: Maximum
+      Period: 60  # Cada minuto se hacen verificaciones para verificar y enviar respectivos correos.
+      EvaluationPeriods: 1
+      Threshold: 0
+      AlarmActions:
+        - !Ref NotificationTopic
+      OKActions: 
+        - !Ref NotificationTopic
+      Dimensions:
+        - Name: TargetGroup
+          Value: !GetAtt ALBTargetGroup.TargetGroupFullName
+        - Name: LoadBalancer
+          Value: !GetAtt ApplicationLoadBalancer.LoadBalancerFullName
+      ComparisonOperator: GreaterThanThreshold
 
-  # SNS Topic para notificaciones
+  # SNS Topic para notificaciones.
+  # Defino un topico para enviar notificaciones de alarma por correo.
   NotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
       DisplayName: !Sub ${EnvironmentName}-AlertNotifications
       TopicName: !Sub ${EnvironmentName}-AlertNotifications
 
+  #Me suscribo a este topico para recibir notificaciones.
   NotificationTopicSubscription:
     Type: AWS::SNS::Subscription
     Properties:
@@ -716,6 +739,7 @@ Resources:
       TopicArn: !Ref NotificationTopic
 
   # CloudTrail para registro de actividad
+  # Se crea un bucket para almacenar los logs de la cuenta y llevar registro de actividad.
   CloudTrailBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -727,6 +751,8 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  #Quiero que los diferentes logs de la actividad de la cuenta actual, los almacenes en mi bucket
+  #Por eso se realiza la politica.  
   CloudTrailBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -751,7 +777,8 @@ Resources:
               StringEquals:
                 "s3:x-amz-acl": "bucket-owner-full-control"
 
-  MyCloudTrail:  #Espero a que se creen el bucket y sus politicas para asociarlo posteriormente con cloudtrail
+#Espero a que se creen el bucket y sus politicas para asociarlo posteriormente con cloudtrail
+  MyCloudTrail:  
     Type: AWS::CloudTrail::Trail
     DependsOn: CloudTrailBucketPolicy
     Properties:
@@ -803,12 +830,6 @@ Outputs:
     Value: !GetAtt RDSDatabase.Endpoint.Address
     Export:
       Name: !Sub ${EnvironmentName}-DBEndpoint
-
-  S3BucketName:
-    Description: Nombre del bucket S3 para contenido estático
-    Value: !Ref S3StaticBucket
-    Export:
-      Name: !Sub ${EnvironmentName}-S3BucketName
   BastionHostIP:
     Description: IP pública del Bastion Host
     Value: !GetAtt BastionHost.PublicIp
