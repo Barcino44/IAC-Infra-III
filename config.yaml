@@ -578,7 +578,8 @@ Resources:
                 products: '/client/getProducts',
                 addToCart: '/shoppingCart/addItem/client/{{clientId}}/product/{{productId}}/quantity/{{quantity}}',
                 itemsToCart: '/shoppingCart/getItems/clientId/{{clientId}}',
-                deleteItemFromCart: '/shoppingCart/deleteItem/item/{{itemId}}/client/{{clientId}}'
+                deleteItemFromCart: '/shoppingCart/deleteItem/item/{{itemId}}/client/{{clientId}}',
+                buyItemsFromCart: '/shoppingCart/checkout/client/{{clientId}}' 
               }
             };
             EOF
